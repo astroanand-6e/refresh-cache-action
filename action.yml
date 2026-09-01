@@ -1,0 +1,75 @@
+name: 'Refresh Cache'
+description: 'Update a GitHub Actions cache under the same cache key: delete the existing entry, then save a fresh one.'
+author: 'astroanand-6e'
+
+branding:
+  icon: 'refresh-cw'
+  color: 'blue'
+
+inputs:
+  path:
+    description: 'A list of files, directories, and wildcard patterns to cache. Same syntax as actions/cache.'
+    required: true
+  key:
+    description: 'The cache key to refresh. The existing entry under this key is deleted, then re-saved.'
+    required: true
+  ref:
+    description: >-
+      The git ref the cache entry is scoped to. Cache entries are per-ref, so this must match the
+      ref the entry was created on. Defaults to the ref of the current run.
+    required: false
+    default: ${{ github.ref }}
+  token:
+    description: >-
+      Token used to call the cache REST API. Needs `actions: write`. Defaults to the workflow
+      GITHUB_TOKEN, which requires `permissions: actions: write` in your workflow.
+    required: false
+    default: ${{ github.token }}
+  upload-chunk-size:
+    description: 'The chunk size used to split up large files during upload, in bytes.'
+    required: false
+  enableCrossOsArchive:
+    description: 'Allow a Windows runner to save or restore a cache that can be restored on other platforms.'
+    required: false
+    default: 'false'
+  fail-on-delete-error:
+    description: >-
+      Fail the step if deleting the existing cache entry fails (for example a 403 from a missing
+      `actions: write` permission). Default false: warn and still attempt the save.
+    required: false
+    default: 'false'
+  skip-delete:
+    description: 'Skip the delete and only save. Useful for debugging.'
+    required: false
+    default: 'false'
+
+outputs:
+  deleted:
+    description: '"true" if an existing cache entry was deleted, "false" otherwise.'
+    value: ${{ steps.delete.outputs.deleted }}
+  http-status:
+    description: 'HTTP status returned by the cache delete API ("skipped" when skip-delete is true).'
+    value: ${{ steps.delete.outputs.http-status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: delete
+      shell: bash
+      env:
+        RC_KEY: ${{ inputs.key }}
+        RC_REF: ${{ inputs.ref }}
+        RC_TOKEN: ${{ inputs.token }}
+        RC_REPOSITORY: ${{ github.repository }}
+        RC_API_URL: ${{ github.api_url }}
+        RC_FAIL_ON_DELETE_ERROR: ${{ inputs.fail-on-delete-error }}
+        RC_SKIP_DELETE: ${{ inputs.skip-delete }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/delete-cache.sh"
+
+    - id: save
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        upload-chunk-size: ${{ inputs.upload-chunk-size }}
+        enableCrossOsArchive: ${{ inputs.enableCrossOsArchive }}
