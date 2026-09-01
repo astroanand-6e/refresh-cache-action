@@ -1,0 +1,67 @@
+name: self-test
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n scripts/delete-cache.sh
+      - name: action.yml parses as YAML
+        run: python3 -c "import yaml,sys; yaml.safe_load(open('action.yml')); print('action.yml OK')"
+      - name: Unit-ish check — missing key fails, skip-delete short-circuits
+        run: |
+          set -e
+          out="$(mktemp)"
+          # skip-delete path
+          RC_SKIP_DELETE=true RC_KEY=x GITHUB_OUTPUT="$out" bash scripts/delete-cache.sh
+          grep -q 'http-status=skipped' "$out"
+          # missing key must fail
+          if RC_KEY= RC_TOKEN=t RC_REPOSITORY=a/b GITHUB_OUTPUT="$out" bash scripts/delete-cache.sh; then
+            echo "expected failure on empty key"; exit 1
+          fi
+          echo "shell behaviour OK"
+
+  refresh:
+    runs-on: ubuntu-latest
+    needs: lint
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache-probe
+          key: refresh-cache-selftest-${{ github.ref_name }}
+
+      - name: Show what we restored
+        run: |
+          if [ -f .cache-probe/stamp ]; then
+            echo "restored stamp: $(cat .cache-probe/stamp)"
+          else
+            echo "cache miss (expected on the first run)"
+          fi
+
+      - name: Write a new stamp
+        run: |
+          mkdir -p .cache-probe
+          date -u +%Y-%m-%dT%H:%M:%SZ > .cache-probe/stamp
+          echo "new stamp: $(cat .cache-probe/stamp)"
+
+      - id: refresh
+        uses: ./
+        with:
+          path: .cache-probe
+          key: refresh-cache-selftest-${{ github.ref_name }}
+
+      - name: Report
+        run: |
+          echo "deleted=${{ steps.refresh.outputs.deleted }}"
+          echo "http-status=${{ steps.refresh.outputs.http-status }}"
